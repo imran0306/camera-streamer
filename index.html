@@ -144,8 +144,12 @@
             projectId: "index-c8661",
             storageBucket: "index-c8661.firebasestorage.app",
             messagingSenderId: "378745618971",
-            appId: "1:378745618971:web:8d748d93ccc1862ca9aebe"
+            appId: "1:378745618971:web:8d748d93ccc1862ca9aebe",
+            measurementId: "G-92N5F6GGHB"
         };
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
         // =================================================================================
 
         // --- App Initialization ---
