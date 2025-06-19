@@ -139,15 +139,13 @@
         // --- !!! IMPORTANT: Firebase Configuration Required !!! ---
         // =================================================================================
         const firebaseConfig = {
-            apiKey: "AIzaSyCgUDJwOg7frldvWBT8OGAUClMJtDlMXj4",
-            authDomain: "index-c8661.firebaseapp.com",
-            projectId: "index-c8661",
-            storageBucket: "index-c8661.firebasestorage.app",
-            messagingSenderId: "378745618971",
-            appId: "1:378745618971:web:8d748d93ccc1862ca9aebe"
+               apiKey: "AIzaSyCgUDJwOg7frldvWBT8OGAUClMJtDlMXj4",
+               authDomain: "index-c8661.firebaseapp.com",
+               projectId: "index-c8661",
+               storageBucket: "index-c8661.firebasestorage.app",
+               messagingSenderId: "378745618971",
+               appId: "1:378745618971:web:8d748d93ccc1862ca9aebe"
         };
-        // Initialize Firebase
- 
         // =================================================================================
 
         // --- App Initialization ---
@@ -178,14 +176,22 @@
         const statusIndicator = document.getElementById('status-indicator');
         const streamingStatus = document.getElementById('streaming-status');
 
+        // UPDATED: Added a public TURN server to help connect through firewalls
         const servers = {
             iceServers: [
-                { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+                { 
+                    urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] 
+                },
+                {
+                    urls: "turn:numb.viagenie.ca",
+                    username: "webrtc@live.com",
+                    credential: "muazkh"
+                }
             ],
             iceCandidatePoolSize: 10,
         };
 
-        let pc = new RTCPeerConnection(servers);
+        let pc;
         let localStream = null;
         let sessionId = null;
         let unsubscribe = null; 
@@ -220,7 +226,7 @@
         const setupPeerConnection = () => {
              pc = new RTCPeerConnection(servers);
 
-             // NEW: Monitor the connection state
+             // Monitor the connection state
              pc.oniceconnectionstatechange = () => {
                 console.log(`ICE Connection State: ${pc.iceConnectionState}`);
                 const state = pc.iceConnectionState;
@@ -264,7 +270,9 @@
                 
                 pc.ontrack = event => {
                     console.log('Remote track received!');
-                    remoteVideo.srcObject = event.streams[0];
+                    if (remoteVideo.srcObject !== event.streams[0]) {
+                        remoteVideo.srcObject = event.streams[0];
+                    }
                 };
 
                 const offerDescription = await pc.createOffer();
@@ -355,11 +363,8 @@
                 pc.close();
             }
             if (unsubscribe) unsubscribe();
-            if (db && sessionId) {
-                 const sessionDocRef = doc(db, 'sessions', sessionId);
-                 // We don't delete on cleanup to allow reconnection attempts
-                 // It will be deleted when a new session starts
-            }
+            // We won't delete the session doc on cleanup anymore to prevent race conditions.
+            // Old sessions will be orphaned but won't interfere.
         };
         
         const reloadApp = () => {
@@ -380,4 +385,3 @@
     </script>
 </body>
 </html>
-
