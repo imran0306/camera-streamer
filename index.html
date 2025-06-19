@@ -62,7 +62,7 @@
             background-color: #34D399; /* Green */
             animation: pulse-green 2s infinite;
         }
-        #status-indicator.error::before {
+        #status-indicator.failed::before {
              background-color: #EF4444; /* Red */
              animation: none;
         }
@@ -107,6 +107,7 @@
                 </div>
                  <div class="text-center mt-6">
                      <button id="disconnect-btn-pc" class="btn-secondary text-white font-bold py-2 px-6 rounded-lg">Disconnect</button>
+                     <button id="restart-btn-pc" class="hidden ml-4 btn bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">Restart</button>
                 </div>
             </div>
 
@@ -137,20 +138,13 @@
         // =================================================================================
         // --- !!! IMPORTANT: Firebase Configuration Required !!! ---
         // =================================================================================
-        // The app WILL NOT WORK without a real Firebase project.
-        // 1. Go to https://console.firebase.google.com/ and create a new project.
-        // 2. Add a Web App to your project.
-        // 3. Copy the firebaseConfig object Firebase gives you.
-        // 4. PASTE your config object below, replacing the placeholder.
-        // 5. In Firebase, go to Firestore Database, create a database, and start in "test mode".
-        // =================================================================================
         const firebaseConfig = {
-            apiKey: "AIzaSyCbGY80nl285755gmiUWBgqovG_Pat_lKg",
-            authDomain: "camera-app-fecef.firebaseapp.com",
-            projectId: "camera-app-fecef",
-            storageBucket: "camera-app-fecef.firebasestorage.app",
-            messagingSenderId: "564133128352",
-            appId: "1:564133128352:web:a77986e3f3100002aac1c5"
+            apiKey: "AIzaSyCgUDJwOg7frldvWBT8OGAUClMJtDlMXj4",
+            authDomain: "index-c8661.firebaseapp.com",
+            projectId: "index-c8661",
+            storageBucket: "index-c8661.firebasestorage.app",
+            messagingSenderId: "378745618971",
+            appId: "1:378745618971:web:8d748d93ccc1862ca9aebe"
         };
         // =================================================================================
 
@@ -173,6 +167,7 @@
         const startCameraBtn = document.getElementById('start-camera-btn');
         const copyLinkBtn = document.getElementById('copy-link-btn');
         const disconnectBtnPc = document.getElementById('disconnect-btn-pc');
+        const restartBtnPc = document.getElementById('restart-btn-pc');
         
         const localVideo = document.getElementById('local-video');
         const remoteVideo = document.getElementById('remote-video');
@@ -201,6 +196,7 @@
             if (urlSessionId) {
                 sessionId = urlSessionId;
                 showView('phone');
+                setupPeerConnection();
             } else {
                 showView('create');
             }
@@ -219,15 +215,40 @@
             }
         };
         
+        const setupPeerConnection = () => {
+             pc = new RTCPeerConnection(servers);
+
+             // NEW: Monitor the connection state
+             pc.oniceconnectionstatechange = () => {
+                console.log(`ICE Connection State: ${pc.iceConnectionState}`);
+                const state = pc.iceConnectionState;
+                if (pcView.offsetParent !== null) { // Check if pcView is visible
+                    statusIndicator.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+                    if (state === 'checking' || state === 'connected' || state === 'completed') {
+                        statusIndicator.className = 'text-lg font-semibold connecting';
+                        if (state === 'connected' || state === 'completed') {
+                            statusIndicator.className = 'text-lg font-semibold connected';
+                        }
+                    } else if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+                        statusIndicator.className = 'text-lg font-semibold failed';
+                        statusIndicator.textContent = 'Connection Failed';
+                        restartBtnPc.classList.remove('hidden');
+                    }
+                }
+            };
+        };
+
         createSessionBtn.onclick = async () => {
             if (!db) {
                 alert("Firebase is not initialized. Please ensure your firebaseConfig is correct.");
                 return;
             }
 
+            setupPeerConnection();
             showView('pc');
             statusIndicator.textContent = 'Initializing...';
             statusIndicator.className = 'text-lg font-semibold connecting';
+            restartBtnPc.classList.add('hidden');
             
             try {
                 const sessionRef = collection(db, 'sessions');
@@ -239,6 +260,11 @@
 
                 pc.onicecandidate = event => event.candidate && addDoc(offerCandidates, event.candidate.toJSON());
                 
+                pc.ontrack = event => {
+                    console.log('Remote track received!');
+                    remoteVideo.srcObject = event.streams[0];
+                };
+
                 const offerDescription = await pc.createOffer();
                 await pc.setLocalDescription(offerDescription);
                 
@@ -248,7 +274,6 @@
                 unsubscribe = onSnapshot(newSessionDoc, snapshot => {
                     const data = snapshot.data();
                     if (!pc.currentRemoteDescription && data?.answer) {
-                        statusIndicator.textContent = 'Connecting...';
                         pc.setRemoteDescription(new RTCSessionDescription(data.answer));
                     }
                 });
@@ -258,12 +283,6 @@
                         if (change.type === 'added') pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
                     });
                 });
-
-                pc.ontrack = event => {
-                    statusIndicator.textContent = 'Connected';
-                    statusIndicator.className = 'text-lg font-semibold connected';
-                    remoteVideo.srcObject = event.streams[0];
-                };
                 
                 const link = `${window.location.href.split('?')[0]}?session=${sessionId}`;
                 sessionLinkInput.value = link;
@@ -273,8 +292,8 @@
             } catch (error) {
                 console.error("Failed to create session:", error);
                 statusIndicator.textContent = 'ERROR';
-                statusIndicator.className = 'text-lg font-semibold error';
-                alert("Could not create a session. This is likely because the Firebase configuration is incorrect or the Firestore database has not been set up correctly (e.g., security rules in 'test mode'). Please check the console for errors and verify your firebaseConfig in the code.");
+                statusIndicator.className = 'text-lg font-semibold failed';
+                alert("Could not create a session. Check console for errors and verify firebaseConfig.");
                 showView('create');
             }
         };
@@ -301,6 +320,11 @@
             pc.onicecandidate = event => event.candidate && addDoc(answerCandidates, event.candidate.toJSON());
             
             const callData = (await getDoc(sessionDocRef)).data();
+            if(!callData || !callData.offer) {
+                alert("Error: Session data not found. The host may have disconnected. Please try again with a new link.");
+                return;
+            }
+
             await pc.setRemoteDescription(new RTCSessionDescription(callData.offer));
             
             const answerDescription = await pc.createAnswer();
@@ -325,17 +349,33 @@
         const cleanup = async () => {
             if (localStream) localStream.getTracks().forEach(track => track.stop());
             if (remoteVideo.srcObject) remoteVideo.srcObject.getTracks().forEach(track => track.stop());
-            if (pc) pc.close();
+            if (pc) {
+                pc.close();
+            }
             if (unsubscribe) unsubscribe();
-            if (db && sessionId) await deleteDoc(doc(db, 'sessions', sessionId)).catch(e => {});
+            if (db && sessionId) {
+                 const sessionDocRef = doc(db, 'sessions', sessionId);
+                 // We don't delete on cleanup to allow reconnection attempts
+                 // It will be deleted when a new session starts
+            }
         };
+        
+        const reloadApp = () => {
+             window.location.href = window.location.pathname;
+        }
 
         disconnectBtnPc.onclick = () => {
             cleanup();
-            window.location.href = window.location.pathname;
+            reloadApp();
         };
+
+        restartBtnPc.onclick = () => {
+             cleanup();
+             createSessionBtn.click();
+        }
         
         window.onbeforeunload = cleanup;
     </script>
 </body>
 </html>
+
