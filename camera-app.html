@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Camera Streamer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: #111827;
+            color: #E5E7EB;
+        }
+        .video-container {
+            background-color: #000;
+            border: 1px solid #374151;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+        }
+        video {
+            width: 100%;
+            height: auto;
+            transform: scaleX(-1); /* Mirror effect */
+        }
+        .btn {
+            background-color: #3B82F6;
+            transition: background-color 0.3s, box-shadow 0.3s;
+            border: 1px solid #60A5FA;
+        }
+        .btn:hover {
+            background-color: #60A5FA;
+            box-shadow: 0 0 10px #3B82F6;
+        }
+        .btn-secondary {
+            background-color: #4B5563;
+            border: 1px solid #6B7280;
+        }
+         .btn-secondary:hover {
+            background-color: #6B7280;
+        }
+        #qrcode {
+            background: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+        }
+        #status-indicator::before {
+            content: '';
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            background-color: #6B7280; /* Gray */
+            animation: pulse-gray 2s infinite;
+        }
+        #status-indicator.connecting::before {
+            background-color: #FBBF24; /* Amber */
+            animation: pulse-amber 2s infinite;
+        }
+        #status-indicator.connected::before {
+            background-color: #34D399; /* Green */
+            animation: pulse-green 2s infinite;
+        }
+        #status-indicator.error::before {
+             background-color: #EF4444; /* Red */
+             animation: none;
+        }
+        
+        @keyframes pulse-gray { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes pulse-amber { 0%, 100% { opacity: 1; box-shadow: 0 0 5px #FBBF24; } 50% { opacity: 0.7; box-shadow: none; } }
+        @keyframes pulse-green { 0%, 100% { opacity: 1; box-shadow: 0 0 8px #34D399; } 50% { opacity: 0.7; box-shadow: none; } }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+
+    <!-- Main Container -->
+    <div id="app" class="w-full max-w-4xl mx-auto p-4 md:p-8">
+
+        <!-- Initial View: Create Session -->
+        <div id="create-view" class="text-center">
+            <h1 class="text-3xl md:text-4xl font-bold text-blue-300 mb-4">Secure Camera Streamer</h1>
+            <p class="text-lg text-gray-400 mb-8">Generate a unique link to securely view your phone's camera on this device.</p>
+            <button id="create-session-btn" class="btn text-white font-bold py-3 px-8 rounded-lg text-xl">
+                Create Secure Session
+            </button>
+        </div>
+
+        <!-- Streaming View: For both PC and Phone -->
+        <div id="streaming-view" class="hidden">
+
+            <!-- PC/Viewer Interface -->
+            <div id="pc-view" class="hidden">
+                <h1 class="text-2xl font-bold text-center text-blue-300 mb-4">Receiving Stream</h1>
+                <div class="grid md:grid-cols-3 gap-6">
+                    <div class="md:col-span-2 video-container rounded-lg overflow-hidden">
+                        <video id="remote-video" autoplay playsinline></video>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-lg flex flex-col items-center justify-center">
+                        <p class="text-gray-300 mb-2">Scan with your phone:</p>
+                        <div id="qrcode" class="mb-4"></div>
+                        <p class="text-gray-300 mb-2">Or copy link:</p>
+                        <input id="session-link" type="text" class="bg-gray-900 border border-gray-600 rounded p-2 w-full text-center mb-4" readonly>
+                        <button id="copy-link-btn" class="btn-secondary text-white font-bold py-2 px-4 rounded w-full mb-4">Copy</button>
+                        <div id="status-indicator" class="text-lg font-semibold">Offline</div>
+                    </div>
+                </div>
+                 <div class="text-center mt-6">
+                     <button id="disconnect-btn-pc" class="btn-secondary text-white font-bold py-2 px-6 rounded-lg">Disconnect</button>
+                </div>
+            </div>
+
+            <!-- Phone/Streamer Interface -->
+            <div id="phone-view" class="hidden text-center">
+                <h1 class="text-2xl font-bold text-blue-300 mb-4">Ready to Stream</h1>
+                <p class="text-gray-400 mb-6">You are about to securely share your camera with another device. No one else can see this stream.</p>
+                <div class="video-container rounded-lg overflow-hidden mb-6 mx-auto max-w-sm">
+                    <video id="local-video" autoplay playsinline muted></video>
+                </div>
+                <button id="start-camera-btn" class="btn text-white font-bold py-3 px-8 rounded-lg text-xl w-full max-w-sm">
+                    Start Sharing Camera
+                </button>
+                <div id="streaming-status" class="hidden mt-4 p-2 bg-red-500/50 text-white rounded-lg max-w-sm mx-auto">
+                    <p class="font-bold">LIVE</p>
+                    <p>Camera is currently streaming.</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, deleteDoc, collection, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // =================================================================================
+        // --- !!! IMPORTANT: Firebase Configuration Required !!! ---
+        // =================================================================================
+        // The app WILL NOT WORK without a real Firebase project.
+        // 1. Go to https://console.firebase.google.com/ and create a new project.
+        // 2. Add a Web App to your project.
+        // 3. Copy the firebaseConfig object Firebase gives you.
+        // 4. PASTE your config object below, replacing the placeholder.
+        // 5. In Firebase, go to Firestore Database, create a database, and start in "test mode".
+        // =================================================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyCbGY80nl285755gmiUWBgqovG_Pat_lKg",
+            authDomain: "camera-app-fecef.firebaseapp.com",
+            projectId: "camera-app-fecef",
+            storageBucket: "camera-app-fecef.firebasestorage.app",
+            messagingSenderId: "564133128352",
+            appId: "1:564133128352:web:a77986e3f3100002aac1c5"
+        };
+        // =================================================================================
+
+        // --- App Initialization ---
+        let db;
+        try {
+             const app = initializeApp(firebaseConfig);
+             db = getFirestore(app);
+        } catch(e) {
+            console.error("Firebase initialization failed. Have you replaced the placeholder firebaseConfig object?", e);
+            alert("CRITICAL ERROR: Firebase is not configured. The app cannot work. Please paste your Firebase project configuration into the script file.");
+        }
+       
+        const createView = document.getElementById('create-view');
+        const streamingView = document.getElementById('streaming-view');
+        const pcView = document.getElementById('pc-view');
+        const phoneView = document.getElementById('phone-view');
+        
+        const createSessionBtn = document.getElementById('create-session-btn');
+        const startCameraBtn = document.getElementById('start-camera-btn');
+        const copyLinkBtn = document.getElementById('copy-link-btn');
+        const disconnectBtnPc = document.getElementById('disconnect-btn-pc');
+        
+        const localVideo = document.getElementById('local-video');
+        const remoteVideo = document.getElementById('remote-video');
+        const sessionLinkInput = document.getElementById('session-link');
+        const qrcodeContainer = document.getElementById('qrcode');
+        const statusIndicator = document.getElementById('status-indicator');
+        const streamingStatus = document.getElementById('streaming-status');
+
+        const servers = {
+            iceServers: [
+                { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+            ],
+            iceCandidatePoolSize: 10,
+        };
+
+        let pc = new RTCPeerConnection(servers);
+        let localStream = null;
+        let sessionId = null;
+        let unsubscribe = null; 
+
+        // --- Core Logic ---
+        
+        window.onload = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlSessionId = urlParams.get('session');
+            if (urlSessionId) {
+                sessionId = urlSessionId;
+                showView('phone');
+            } else {
+                showView('create');
+            }
+        };
+
+        const showView = (viewName) => {
+            createView.classList.add('hidden');
+            streamingView.classList.add('hidden');
+            pcView.classList.add('hidden');
+            phoneView.classList.add('hidden');
+
+            switch(viewName) {
+                case 'create': createView.classList.remove('hidden'); break;
+                case 'pc': streamingView.classList.remove('hidden'); pcView.classList.remove('hidden'); break;
+                case 'phone': streamingView.classList.remove('hidden'); phoneView.classList.remove('hidden'); break;
+            }
+        };
+        
+        createSessionBtn.onclick = async () => {
+            if (!db) {
+                alert("Firebase is not initialized. Please ensure your firebaseConfig is correct.");
+                return;
+            }
+
+            showView('pc');
+            statusIndicator.textContent = 'Initializing...';
+            statusIndicator.className = 'text-lg font-semibold connecting';
+            
+            try {
+                const sessionRef = collection(db, 'sessions');
+                const newSessionDoc = await addDoc(sessionRef, {});
+                sessionId = newSessionDoc.id;
+
+                const offerCandidates = collection(db, 'sessions', sessionId, 'offerCandidates');
+                const answerCandidates = collection(db, 'sessions', sessionId, 'answerCandidates');
+
+                pc.onicecandidate = event => event.candidate && addDoc(offerCandidates, event.candidate.toJSON());
+                
+                const offerDescription = await pc.createOffer();
+                await pc.setLocalDescription(offerDescription);
+                
+                const offer = { sdp: offerDescription.sdp, type: offerDescription.type };
+                await setDoc(newSessionDoc, { offer });
+
+                unsubscribe = onSnapshot(newSessionDoc, snapshot => {
+                    const data = snapshot.data();
+                    if (!pc.currentRemoteDescription && data?.answer) {
+                        statusIndicator.textContent = 'Connecting...';
+                        pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                    }
+                });
+
+                onSnapshot(answerCandidates, snapshot => {
+                    snapshot.docChanges().forEach(change => {
+                        if (change.type === 'added') pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                    });
+                });
+
+                pc.ontrack = event => {
+                    statusIndicator.textContent = 'Connected';
+                    statusIndicator.className = 'text-lg font-semibold connected';
+                    remoteVideo.srcObject = event.streams[0];
+                };
+                
+                const link = `${window.location.href.split('?')[0]}?session=${sessionId}`;
+                sessionLinkInput.value = link;
+                qrcodeContainer.innerHTML = "";
+                new QRCode(qrcodeContainer, { text: link, width: 128, height: 128 });
+
+            } catch (error) {
+                console.error("Failed to create session:", error);
+                statusIndicator.textContent = 'ERROR';
+                statusIndicator.className = 'text-lg font-semibold error';
+                alert("Could not create a session. This is likely because the Firebase configuration is incorrect or the Firestore database has not been set up correctly (e.g., security rules in 'test mode'). Please check the console for errors and verify your firebaseConfig in the code.");
+                showView('create');
+            }
+        };
+
+        startCameraBtn.onclick = async () => {
+            if (!db || !sessionId) return;
+            
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                localVideo.srcObject = localStream;
+                startCameraBtn.classList.add('hidden');
+                streamingStatus.classList.remove('hidden');
+            } catch(e) {
+                alert("Camera access denied. Please allow camera access in your browser settings and refresh.");
+                return;
+            }
+            
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            
+            const sessionDocRef = doc(db, 'sessions', sessionId);
+            const offerCandidates = collection(db, 'sessions', sessionId, 'offerCandidates');
+            const answerCandidates = collection(db, 'sessions', sessionId, 'answerCandidates');
+            
+            pc.onicecandidate = event => event.candidate && addDoc(answerCandidates, event.candidate.toJSON());
+            
+            const callData = (await getDoc(sessionDocRef)).data();
+            await pc.setRemoteDescription(new RTCSessionDescription(callData.offer));
+            
+            const answerDescription = await pc.createAnswer();
+            await pc.setLocalDescription(answerDescription);
+            
+            await updateDoc(sessionDocRef, { answer: { type: answerDescription.type, sdp: answerDescription.sdp } });
+            
+            onSnapshot(offerCandidates, snapshot => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                });
+            });
+        };
+
+        copyLinkBtn.onclick = () => {
+            sessionLinkInput.select();
+            document.execCommand('copy');
+            copyLinkBtn.textContent = 'Copied!';
+            setTimeout(() => { copyLinkBtn.textContent = 'Copy'; }, 2000);
+        };
+
+        const cleanup = async () => {
+            if (localStream) localStream.getTracks().forEach(track => track.stop());
+            if (remoteVideo.srcObject) remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+            if (pc) pc.close();
+            if (unsubscribe) unsubscribe();
+            if (db && sessionId) await deleteDoc(doc(db, 'sessions', sessionId)).catch(e => {});
+        };
+
+        disconnectBtnPc.onclick = () => {
+            cleanup();
+            window.location.href = window.location.pathname;
+        };
+        
+        window.onbeforeunload = cleanup;
+    </script>
+</body>
+</html>
